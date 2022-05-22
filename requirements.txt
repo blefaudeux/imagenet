@@ -1,0 +1,8 @@
+# Example requirement, can be anything that pip knows
+# install with `pip install -r requirements.txt`, and make sure that CI does the same
+torch >= 1.8.1
+numpy
+pyre-extensions == 0.0.23
+triton == 2.0.0.dev20220403
+hydra-core >= 1.1
+xformers >= 0.0.10
