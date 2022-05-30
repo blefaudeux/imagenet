@@ -26,9 +26,9 @@ class MetaVisionTransformer(VisionTransformer):
         learning_rate=5e-3,
         betas=(0.9, 0.99),
         weight_decay=0.03,
-        image_size=32,
+        image_size=224,
         num_classes=10,
-        dim=384,
+        dim=512,
         attention="scaled_dot_product",
         layer_norm_style="pre",
         use_rotary_embeddings=True,
@@ -50,10 +50,10 @@ class MetaVisionTransformer(VisionTransformer):
             BasicLayerConfig(
                 embedding=64,
                 attention_mechanism=attention,
-                patch_size=3,
-                stride=2,
-                padding=1,
-                seq_len=image_size * image_size // 4,
+                patch_size=7,
+                stride=4,
+                padding=3,
+                seq_len=image_size * image_size // 16,
             ),
             BasicLayerConfig(
                 embedding=128,
@@ -61,7 +61,7 @@ class MetaVisionTransformer(VisionTransformer):
                 patch_size=3,
                 stride=2,
                 padding=1,
-                seq_len=image_size * image_size // 16,
+                seq_len=image_size * image_size // 64,
             ),
             BasicLayerConfig(
                 embedding=320,
@@ -69,7 +69,7 @@ class MetaVisionTransformer(VisionTransformer):
                 patch_size=3,
                 stride=2,
                 padding=1,
-                seq_len=image_size * image_size // 64,
+                seq_len=image_size * image_size // 256,
             ),
             BasicLayerConfig(
                 embedding=512,
@@ -77,7 +77,7 @@ class MetaVisionTransformer(VisionTransformer):
                 patch_size=3,
                 stride=2,
                 padding=1,
-                seq_len=image_size * image_size // 256,
+                seq_len=image_size * image_size // 1024,
             ),
         ]
 
@@ -92,6 +92,7 @@ class MetaVisionTransformer(VisionTransformer):
 
         # Now instantiate the metaformer trunk
         config = xFormerConfig(xformer_config)
+        config.weight_init = "timm"
         print(config)
         self.trunk = xFormer.from_config(config)
         print(self.trunk)
@@ -118,8 +119,7 @@ if __name__ == "__main__":
     # Adjust batch depending on the available memory on your machine.
     # You can also use reversible layers to save memory
     REF_BATCH = 512
-    BATCH = 64
-    IMG_SIZE = 224
+    BATCH = 32
 
     MAX_EPOCHS = 2
     NUM_WORKERS = 4
@@ -138,8 +138,8 @@ if __name__ == "__main__":
         pin_memory=True,
     )
 
-    image_size = dm.size(-1)  # 32 for CIFAR
-    num_classes = dm.num_classes  # 10 for CIFAR
+    image_size = dm.size(-1)
+    num_classes = dm.num_classes
 
     # compute total number of steps
     batch_size = BATCH * GPUS
