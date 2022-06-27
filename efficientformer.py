@@ -1,14 +1,5 @@
 import torch
-from ffcv.fields.decoders import IntDecoder, RandomResizedCropRGBImageDecoder
-from ffcv.loader import Loader, OrderOption
-from ffcv.transforms import (
-    RandomHorizontalFlip,
-    ToDevice,
-    ToTensor,
-    ToTorchImage,
-    NormalizeImage,
-    Squeeze,
-)
+
 import gc
 from torch import nn
 from torchmetrics import Accuracy
@@ -22,14 +13,13 @@ from xformers.helpers.hierarchical_configs import (
     BasicLayerConfig,
     get_hierarchical_configuration,
 )
-from pathlib import Path
 
 import os
-import numpy as np
 from utils import AverageMeter, parse
 from trainer import train, save_checkpoint
 
 # CREDITS: Inspired by the Dali and FFCV imagenet examples
+from dataloaders import get_ffcv_imagenet_dataloader
 
 
 class EfficientFormer(nn.Module):
@@ -143,62 +133,22 @@ class EfficientFormer(nn.Module):
 if __name__ == "__main__":
     args = parse()
 
-    # Adjust batch depending on the available memory on your machine.
-    # You can also use reversible layers to save memory
-    REF_BATCH = 1024
-    BATCH = 512  # lower if not enough GPU memory
-
-    MAX_EPOCHS = 50
     NUM_WORKERS = 6
     GPUS = 1
     IMG_SIZE = 224
     NUM_CLASSES = 1000
-    IN_MEAN = np.array([0.485 * 255, 0.456 * 255, 0.406 * 255])
-    IN_STD = np.array([0.229 * 255, 0.224 * 255, 0.225 * 255])
 
     torch.cuda.manual_seed_all(42)
     torch.manual_seed(42)
 
-    # Random resized crop
-    pipeline_image = [
-        RandomResizedCropRGBImageDecoder((IMG_SIZE, IMG_SIZE)),
-        RandomHorizontalFlip(),
-        ToTensor(),
-        ToDevice(0, non_blocking=True),
-        ToTorchImage(),
-        NormalizeImage(
-            mean=IN_MEAN,
-            std=IN_STD,
-            type=np.float16,
-        ),
-    ]
-
-    pipeline_label = [
-        IntDecoder(),
-        ToTensor(),
-        Squeeze(),
-        ToDevice(0, non_blocking=True),
-    ]
-
-    dataloader = Loader(
-        str(Path.home()) + "/Data/ImageNet/ds.beton",
-        batch_size=BATCH,
-        num_workers=NUM_WORKERS,
-        order=OrderOption.QUASI_RANDOM,
-        pipelines={
-            "image": pipeline_image,
-            "label": pipeline_label,
-        },
-        os_cache=False,  # too big to fit in memory anyway
-        drop_last=True,
+    dataloader = get_ffcv_imagenet_dataloader(
+        args.batch_size, IMG_SIZE, workers=NUM_WORKERS
     )
 
-    # TODO: filter based on indices and make a test dataloader on top
-
-    steps = len(dataloader) // REF_BATCH * MAX_EPOCHS
+    steps = len(dataloader) // args.epochs
 
     # compute total number of steps
-    batch_size = BATCH * GPUS
+    batch_size = args.batch_size * GPUS
     model = EfficientFormer(
         steps=steps,
         image_size=IMG_SIZE,
@@ -256,7 +206,7 @@ if __name__ == "__main__":
                 "state_dict": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "lr": args.lr,
-                "batch_size": BATCH,
+                "batch_size": args.batch_size,
             },
             is_best=False,
             filename=f"checkpoint_{epoch}.pth.tar",

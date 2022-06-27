@@ -1,25 +1,28 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
-#
-# This source code is licensed under the BSD license found in the
-# LICENSE file in the root directory of this source tree.
-
-
-import pytorch_lightning as pl
 import torch
-from pl_bolts.datamodules import ImagenetDataModule
+
+import gc
 from torch import nn
 from torchmetrics import Accuracy
-from pathlib import Path
 
-from vit import VisionTransformer, Classifier
+from xformers.components import MultiHeadDispatch
+from xformers.components.attention import ScaledDotProduct
+from xformers.components.patch_embedding import PatchEmbeddingConfig  # noqa
+from xformers.components.patch_embedding import build_patch_embedding  # noqa
 from xformers.factory import xFormer, xFormerConfig
 from xformers.helpers.hierarchical_configs import (
     BasicLayerConfig,
     get_hierarchical_configuration,
 )
 
+import os
+from utils import AverageMeter, parse
+from trainer import train, save_checkpoint
 
-class MetaVisionTransformer(VisionTransformer):
+# CREDITS: Inspired by the Dali and FFCV imagenet examples
+from dataloaders import get_ffcv_imagenet_dataloader
+
+
+class MetaFormer(nn.Module):
     def __init__(
         self,
         steps,
@@ -33,19 +36,15 @@ class MetaVisionTransformer(VisionTransformer):
         layer_norm_style="pre",
         use_rotary_embeddings=True,
         linear_warmup_ratio=0.1,
-        classifier=Classifier.GAP,
     ):
 
-        super(VisionTransformer, self).__init__()
+        super().__init__()
 
-        # all the inputs are saved under self.hparams (hyperparams)
-        self.save_hyperparameters()
+        # This corresponds to the S12 Poolformer
+
+        # FIXME: pass a "repeat" field instead
 
         # Generate the skeleton of our hierarchical Transformer
-
-        # This is a small poolformer configuration, adapted to the small CIFAR10 pictures (32x32)
-        # Any other related config would work,
-        # and the attention mechanisms don't have to be the same across layers
         base_hierarchical_configs = [
             BasicLayerConfig(
                 embedding=64,
@@ -54,7 +53,12 @@ class MetaVisionTransformer(VisionTransformer):
                 stride=4,
                 padding=3,
                 seq_len=image_size * image_size // 16,
-            ),
+                feedforward="Conv2DFeedforward",
+                repeat_layer=2,
+            )
+        ]
+
+        base_hierarchical_configs += [
             BasicLayerConfig(
                 embedding=128,
                 attention_mechanism=attention,
@@ -62,7 +66,12 @@ class MetaVisionTransformer(VisionTransformer):
                 stride=2,
                 padding=1,
                 seq_len=image_size * image_size // 64,
-            ),
+                feedforward="Conv2DFeedforward",
+                repeat_layer=2,
+            )
+        ]
+
+        base_hierarchical_configs += [
             BasicLayerConfig(
                 embedding=320,
                 attention_mechanism=attention,
@@ -70,7 +79,12 @@ class MetaVisionTransformer(VisionTransformer):
                 stride=2,
                 padding=1,
                 seq_len=image_size * image_size // 256,
-            ),
+                feedforward="Conv2DFeedforward",
+                repeat_layer=6,
+            )
+        ]
+
+        base_hierarchical_configs += [
             BasicLayerConfig(
                 embedding=512,
                 attention_mechanism=attention,
@@ -78,7 +92,9 @@ class MetaVisionTransformer(VisionTransformer):
                 stride=2,
                 padding=1,
                 seq_len=image_size * image_size // 1024,
-            ),
+                feedforward="Conv2DFeedforward",
+                repeat_layer=2,
+            )
         ]
 
         # Fill in the gaps in the config
@@ -114,51 +130,87 @@ class MetaVisionTransformer(VisionTransformer):
 
 
 if __name__ == "__main__":
-    pl.seed_everything(42)
+    args = parse()
 
-    # Adjust batch depending on the available memory on your machine.
-    # You can also use reversible layers to save memory
-    REF_BATCH = 512
-    BATCH = 32
-
-    MAX_EPOCHS = 2
-    NUM_WORKERS = 4
+    NUM_WORKERS = 6
     GPUS = 1
+    IMG_SIZE = 224
+    NUM_CLASSES = 1000
 
-    # We'll use a datamodule here, which already handles dataset/dataloader/sampler
-    # See https://pytorchlightning.github.io/lightning-tutorials/notebooks/lightning_examples/cifar10-baseline.html
-    # for a full tutorial
-    dm = ImagenetDataModule(
-        data_dir=Path.home()
-        / Path(
-            "Data/ImageNet/imagenet-object-localization-challenge/ILSVRC/Data/CLS-LOC"
-        ),
-        batch_size=BATCH,
-        num_workers=NUM_WORKERS,
-        pin_memory=True,
+    torch.cuda.manual_seed_all(42)
+    torch.manual_seed(42)
+
+    dataloader = get_ffcv_imagenet_dataloader(
+        args.batch_size, IMG_SIZE, workers=NUM_WORKERS
     )
 
-    image_size = dm.size(-1)
-    num_classes = dm.num_classes
+    steps = len(dataloader) // args.epochs
 
     # compute total number of steps
-    batch_size = BATCH * GPUS
-    steps = dm.num_samples // REF_BATCH * MAX_EPOCHS
-    lm = MetaVisionTransformer(
+    batch_size = args.batch_size * GPUS
+    model = MetaFormer(
         steps=steps,
-        image_size=image_size,
-        num_classes=num_classes,
-        attention="scaled_dot_product",
-        layer_norm_style="pre",
-        use_rotary_embeddings=True,
+        image_size=IMG_SIZE,
+        num_classes=NUM_CLASSES,
     )
-    trainer = pl.Trainer(
-        gpus=GPUS,
-        max_epochs=MAX_EPOCHS,
-        precision=16,
-        accumulate_grad_batches=REF_BATCH // BATCH,
-    )
-    trainer.fit(lm, dm)
 
-    # check the training
-    trainer.test(lm, datamodule=dm)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+    )
+
+    # Optionally resume from a checkpoint
+    if args.resume:
+        # Use a local scope to avoid dangling references
+        def resume():
+            if os.path.isfile(args.resume):
+                print("=> loading checkpoint '{}'".format(args.resume))
+                checkpoint = torch.load(
+                    args.resume,
+                    map_location=lambda storage, loc: storage.cuda(args.gpu),
+                )
+                args.start_epoch = checkpoint["epoch"]
+                global best_prec1
+                best_prec1 = checkpoint["best_prec1"]
+                model.load_state_dict(checkpoint["state_dict"])
+                optimizer.load_state_dict(checkpoint["optimizer"])
+                print(
+                    "=> loaded checkpoint '{}' (epoch {})".format(
+                        args.resume, checkpoint["epoch"]
+                    )
+                )
+            else:
+                print("=> no checkpoint found at '{}'".format(args.resume))
+
+        resume()
+
+    total_time = AverageMeter()
+    for epoch in range(args.start_epoch, args.epochs):
+        # train for one epoch
+        avg_train_time = train(
+            train_loader=dataloader,
+            model=model.cuda(),
+            criterion=nn.CrossEntropyLoss().cuda(),
+            optimizer=optimizer,
+            epoch=epoch,
+            args=args,
+        )
+
+        total_time.update(avg_train_time)
+
+        save_checkpoint(
+            {
+                "epoch": epoch + 1,
+                "state_dict": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "lr": args.lr,
+                "batch_size": args.batch_size,
+            },
+            is_best=False,
+            filename=f"checkpoint_{epoch}.pth.tar",
+        )
+
+        # Failsafe: clear caches
+        torch.cuda.empty_cache()
+        gc.collect()
