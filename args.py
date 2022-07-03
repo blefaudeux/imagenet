@@ -87,6 +87,13 @@ def parse():
         help="use automatic mixed precision",
     )
     parser.add_argument(
+        "--label_smoothing",
+        dest="label_smoothing",
+        default=0.1,
+        type=float,
+        help="use label smoothing with cross entropy loss",
+    )
+    parser.add_argument(
         "--grad_accumulate",
         "-gac",
         default=1,

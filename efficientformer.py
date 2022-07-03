@@ -26,14 +26,9 @@ from dataloaders import get_ffcv_imagenet_dataloader
 class EfficientFormer(nn.Module):
     def __init__(
         self,
-        steps,
-        learning_rate=5e-4,
-        betas=(0.9, 0.99),
-        weight_decay=0.03,
         image_size=32,
         num_classes=10,
         dim=384,
-        linear_warmup_ratio=0.1,
     ):
 
         super().__init__()
@@ -150,7 +145,6 @@ if __name__ == "__main__":
     # compute total number of steps
     batch_size = args.batch_size * GPUS
     model = EfficientFormer(
-        steps=steps,
         image_size=IMG_SIZE,
         num_classes=NUM_CLASSES,
     )

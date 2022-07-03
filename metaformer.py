@@ -23,17 +23,12 @@ from dataloaders import get_ffcv_imagenet_dataloader
 class MetaFormer(nn.Module):
     def __init__(
         self,
-        steps,
-        learning_rate=5e-3,
-        betas=(0.9, 0.99),
-        weight_decay=0.03,
         image_size=224,
         num_classes=10,
         dim=512,
         attention="scaled_dot_product",
         layer_norm_style="pre",
-        use_rotary_embeddings=True,
-        linear_warmup_ratio=0.1,
+        use_rotary_embeddings=False,
     ):
 
         super().__init__()
@@ -126,7 +121,6 @@ class MetaFormer(nn.Module):
 if __name__ == "__main__":
     args = parse()
 
-    NUM_WORKERS = 6
     GPUS = 1
     IMG_SIZE = 224
     NUM_CLASSES = 1000
@@ -143,7 +137,6 @@ if __name__ == "__main__":
     # compute total number of steps
     batch_size = args.batch_size * GPUS
     model = MetaFormer(
-        steps=steps,
         image_size=IMG_SIZE,
         num_classes=NUM_CLASSES,
         attention="pooling",
@@ -183,12 +176,15 @@ if __name__ == "__main__":
         resume()
 
     total_time = AverageMeter()
+    model = model.cuda()
+    criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing).cuda()
+
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
         avg_train_time = train(
             train_loader=dataloader,
-            model=model.cuda(),
-            criterion=nn.CrossEntropyLoss().cuda(),
+            model=model,
+            criterion=criterion,
             optimizer=optimizer,
             epoch=epoch,
             args=args,
