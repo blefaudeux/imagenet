@@ -87,10 +87,15 @@ def parse():
         help="use automatic mixed precision",
     )
     parser.add_argument(
+        "--bf16",
+        dest="bf16",
+        action="store_true",
+        help="move computations to bf16",
+    )
+    parser.add_argument(
         "--label_smoothing",
         dest="label_smoothing",
         default=0.1,
-        type=float,
         help="use label smoothing with cross entropy loss",
     )
     parser.add_argument(
@@ -107,5 +112,7 @@ def parse():
 
     # Do not printout faster than the gradient accumulation, if any
     args.print_freq = max(args.print_freq, args.grad_accumulate)
+
+    assert not args.bf16 or not args.amp, "AMP and BFloat16 cannot be used together"
 
     return args

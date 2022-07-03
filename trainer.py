@@ -30,8 +30,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         input = data[0]
         target = data[1]
 
+        if args.bf16:
+            input = input.bfloat16()
+
         # compute output & gradients
-        context = autocast(enabled=True) if args.amp else nullcontext
+        context = autocast(enabled=True) if args.amp else nullcontext()
         with context:
             output = model(input)
             loss = criterion(output, target)
@@ -69,10 +72,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             batch_time.update((time.time() - end) / args.print_freq)
             end = time.time()
 
+            samples_seen = args.batch_size * args.grad_accumulate
             print(
                 f"Epoch: [{epoch}][{i}/{train_loader_len}] | "
                 f"Time {batch_time.val:.3f} ({batch_time.avg:.3f}) | "
-                f"Speed {args.batch_size / batch_time.val:.3f} ({args.batch_size / batch_time.avg:.3f}) | "
+                f"Speed {round(samples_seen / batch_time.val)} ({round(samples_seen / batch_time.avg)}) | "
                 f"LR {scheduler.get_last_lr()[0]:.5f} | "
                 f"Loss {losses.val:.3f} ({losses.avg:.4f}) | "
                 f"Prec@1 {top1.val:.3f} ({top1.avg:.3f}) | "

@@ -179,6 +179,9 @@ if __name__ == "__main__":
     model = model.cuda()
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing).cuda()
 
+    if args.bf16:
+        model = model.bfloat16()
+
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
         avg_train_time = train(
