@@ -8,6 +8,7 @@ from contextlib import nullcontext
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
+    # Train for one epoch
     batch_time = AverageMeter()
     losses = AverageMeter()
     top1 = AverageMeter()
@@ -17,15 +18,19 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     model.train()
     end = time.time()
     scaler = GradScaler()
+    train_loader_len = len(train_loader)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=args.lr,
+        steps_per_epoch=train_loader_len // args.grad_accumulate,
+        epochs=args.epochs,
+    )
 
     for i, data in enumerate(train_loader):
         input = data[0]
         target = data[1]
 
-        train_loader_len = len(train_loader)
-        lr = adjust_learning_rate(optimizer, epoch, i, train_loader_len, args)
-
-        # compute output
+        # compute output & gradients
         context = autocast(enabled=True) if args.amp else nullcontext
         with context:
             output = model(input)
@@ -37,7 +42,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             loss.backward()
 
         # optim step
-        if i % args.grad_accumulate == 0:
+        if i > 0 and i % args.grad_accumulate == 0:
             if args.amp:
                 scaler.step(optimizer)
                 scaler.update()
@@ -45,6 +50,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
                 optimizer.step()
 
             optimizer.zero_grad(set_to_none=True)
+            scheduler.step()
 
         if i % args.print_freq == 0:
             # Every print_freq iterations, check the loss, accuracy, and speed.
@@ -64,24 +70,13 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             end = time.time()
 
             print(
-                "Epoch: [{0}][{1}/{2}] | "
-                "Time {batch_time.val:.3f} ({batch_time.avg:.3f}) | "
-                "Speed {3:.3f} ({4:.3f}) | "
-                "LR {lr:.5f} | "
-                "Loss {loss.val:.3f} ({loss.avg:.4f}) | "
-                "Prec@1 {top1.val:.3f} ({top1.avg:.3f}) | "
-                "Prec@5 {top5.val:.3f} ({top5.avg:.3f})".format(
-                    epoch,
-                    i,
-                    train_loader_len,
-                    args.batch_size / batch_time.val,
-                    args.batch_size / batch_time.avg,
-                    lr=lr,
-                    batch_time=batch_time,
-                    loss=losses,
-                    top1=top1,
-                    top5=top5,
-                )
+                f"Epoch: [{epoch}][{i}/{train_loader_len}] | "
+                f"Time {batch_time.val:.3f} ({batch_time.avg:.3f}) | "
+                f"Speed {args.batch_size / batch_time.val:.3f} ({args.batch_size / batch_time.avg:.3f}) | "
+                f"LR {scheduler.get_last_lr()[0]:.5f} | "
+                f"Loss {losses.val:.3f} ({losses.avg:.4f}) | "
+                f"Prec@1 {top1.val:.3f} ({top1.avg:.3f}) | "
+                f"Prec@5 {top5.val:.3f} ({top5.avg:.3f})"
             )
 
     return batch_time.avg

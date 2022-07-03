@@ -11,7 +11,7 @@ from xformers.helpers.hierarchical_configs import (
 )
 
 import os
-from utils import AverageMeter
+from utils import AverageMeter, describe_model
 from args import parse
 
 from trainer import train, save_checkpoint
@@ -151,6 +151,8 @@ if __name__ == "__main__":
         image_size=IMG_SIZE,
         num_classes=NUM_CLASSES,
     )
+
+    describe_model(model)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),

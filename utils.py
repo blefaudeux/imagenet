@@ -15,3 +15,14 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def describe_model(model):
+    num_params = sum(param.numel() for param in model.parameters())
+    num_trainable_params = sum(
+        param.numel() for param in model.parameters() if param.requires_grad
+    )
+    print(
+        f"{round(num_params / 1e6, 2)}M parameters | "
+        f"{round(num_trainable_params / 1e6, 2)}M trainable parameters"
+    )
