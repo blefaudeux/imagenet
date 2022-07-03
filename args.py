@@ -97,4 +97,8 @@ def parse():
     parser.add_argument("--deterministic", action="store_true")
 
     args = parser.parse_args()
+
+    # Do not printout faster than the gradient accumulation, if any
+    args.print_freq = max(args.print_freq, args.grad_accumulate)
+
     return args

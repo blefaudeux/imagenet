@@ -113,14 +113,10 @@ class MetaFormer(nn.Module):
 
         # The classifier head
         dim = base_hierarchical_configs[-1].embedding
-        self.ln = nn.LayerNorm(dim)
         self.head = nn.Linear(dim, num_classes)
-        self.criterion = torch.nn.CrossEntropyLoss()
-        self.val_accuracy = Accuracy()
 
     def forward(self, x):
         x = self.trunk(x)
-        x = self.ln(x)
 
         x = x.mean(dim=1)  # mean over sequence len
         x = self.head(x)
@@ -150,6 +146,7 @@ if __name__ == "__main__":
         steps=steps,
         image_size=IMG_SIZE,
         num_classes=NUM_CLASSES,
+        attention="pooling",
     )
 
     describe_model(model)
