@@ -4,6 +4,7 @@ from utils import AverageMeter
 import torch
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
+from contextlib import nullcontext
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
@@ -25,15 +26,25 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         lr = adjust_learning_rate(optimizer, epoch, i, train_loader_len, args)
 
         # compute output
-        optimizer.zero_grad(set_to_none=True)
-        with autocast():
+        context = autocast(enabled=True) if args.amp else nullcontext
+        with context:
             output = model(input)
             loss = criterion(output, target)
 
-        # compute gradient and do an optim step
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        if args.amp:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
+
+        # optim step
+        if i % args.grad_accumulate == 0:
+            if args.amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+
+            optimizer.zero_grad(set_to_none=True)
 
         if i % args.print_freq == 0:
             # Every print_freq iterations, check the loss, accuracy, and speed.
@@ -89,7 +100,7 @@ def adjust_learning_rate(optimizer, epoch, step, len_epoch, args):
     if epoch >= 80:
         factor = factor + 1
 
-    lr = args.lr * (0.1 ** factor)
+    lr = args.lr * (0.1**factor)
 
     """Warmup"""
     warmup = 2

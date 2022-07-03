@@ -15,7 +15,8 @@ from xformers.helpers.hierarchical_configs import (
 )
 
 import os
-from utils import AverageMeter, parse
+from utils import AverageMeter
+from args import parse
 from trainer import train, save_checkpoint
 
 # CREDITS: Inspired by the Dali and FFCV imagenet examples
@@ -133,7 +134,6 @@ class EfficientFormer(nn.Module):
 if __name__ == "__main__":
     args = parse()
 
-    NUM_WORKERS = 6
     GPUS = 1
     IMG_SIZE = 224
     NUM_CLASSES = 1000
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     torch.manual_seed(42)
 
     dataloader = get_ffcv_imagenet_dataloader(
-        args.batch_size, IMG_SIZE, workers=NUM_WORKERS
+        args.batch_size, IMG_SIZE, workers=args.workers
     )
 
     steps = len(dataloader) // args.epochs

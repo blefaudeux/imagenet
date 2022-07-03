@@ -11,6 +11,7 @@ from ffcv.transforms import (
 import numpy as np
 from pathlib import Path
 
+
 def get_ffcv_imagenet_dataloader(batch_size: int, img_size: int, workers: int):
     IN_MEAN = np.array([0.485 * 255, 0.456 * 255, 0.406 * 255])
     IN_STD = np.array([0.229 * 255, 0.224 * 255, 0.225 * 255])

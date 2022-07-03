@@ -4,10 +4,6 @@ import gc
 from torch import nn
 from torchmetrics import Accuracy
 
-from xformers.components import MultiHeadDispatch
-from xformers.components.attention import ScaledDotProduct
-from xformers.components.patch_embedding import PatchEmbeddingConfig  # noqa
-from xformers.components.patch_embedding import build_patch_embedding  # noqa
 from xformers.factory import xFormer, xFormerConfig
 from xformers.helpers.hierarchical_configs import (
     BasicLayerConfig,
@@ -15,7 +11,9 @@ from xformers.helpers.hierarchical_configs import (
 )
 
 import os
-from utils import AverageMeter, parse
+from utils import AverageMeter
+from args import parse
+
 from trainer import train, save_checkpoint
 
 # CREDITS: Inspired by the Dali and FFCV imagenet examples
@@ -141,7 +139,7 @@ if __name__ == "__main__":
     torch.manual_seed(42)
 
     dataloader = get_ffcv_imagenet_dataloader(
-        args.batch_size, IMG_SIZE, workers=NUM_WORKERS
+        args.batch_size, IMG_SIZE, workers=args.workers
     )
 
     steps = len(dataloader) // args.epochs
